@@ -8,6 +8,16 @@ from influxdb import InfluxDBClient
 from pyemvue import PyEmVue
 from pyemvue.enums import Scale, Unit, TotalTimeFrame, TotalUnit
 
+def log(level, msg):
+    now = datetime.datetime.utcnow()
+    print('{} | {} | {}'.format(now, level.ljust(5), msg))
+
+def info(msg):
+    log("INFO", msg)
+
+def error(msg):
+    log("ERROR", msg)
+    
 if len(sys.argv) != 2:
     print('Usage: python {} <config-file>'.format(sys.argv[0]))
     sys.exit(1)
@@ -24,16 +34,6 @@ if config['influxDb']['reset']:
     influx.delete_series(measurement='energy_usage')
 
 running = True
-
-def log(level, msg):
-    now = datetime.datetime.utcnow()
-    print('{} | {} | {}'.format(now, level.ljust(5), msg))
-
-def info(msg):
-    log("INFO", msg)
-
-def error(msg):
-    log("ERROR", msg)
 
 def handleExit(signum, frame):
     global running
