@@ -105,12 +105,12 @@ while running:
 
             #start = account['end'] - datetime.timedelta(seconds=INTERVAL_SECS)
             start = account['end'] - datetime.timedelta(hours=2)
-            #result = influx.query('select last(usage), time from energy_usage where account_name = \'{}\''.format(account['name']))
-            #if len(result) > 0:
-            #    timeStr = next(result.get_points())['time'][:26] + 'Z'
-            #    tmpStartingTime = datetime.datetime.strptime(timeStr, '%Y-%m-%dT%H:%M:%S.%fZ')
-            #    if tmpStartingTime > start:
-            #        start = tmpStartingTime
+            result = influx.query('select last(usage), time from energy_usage where account_name = \'{}\''.format(account['name']))
+            if len(result) > 0:
+                timeStr = next(result.get_points())['time'][:26] + 'Z'
+                tmpStartingTime = datetime.datetime.strptime(timeStr, '%Y-%m-%dT%H:%M:%S.%fZ')
+                if tmpStartingTime < start:
+                    start = tmpStartingTime
         else:
             start = account['end'] - datetime.timedelta(minutes=10)
             account['end'] = tmpEndingTime
