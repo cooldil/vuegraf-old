@@ -103,8 +103,8 @@ while running:
 
             account['end'] = tmpEndingTime
 
-            start = account['end'] - datetime.timedelta(seconds=INTERVAL_SECS)
-            #start = account['end'] - datetime.timedelta(minutes=30)
+            #start = account['end'] - datetime.timedelta(seconds=INTERVAL_SECS)
+            start = account['end'] - datetime.timedelta(hours=2)
             result = influx.query('select last(usage), time from energy_usage where account_name = \'{}\''.format(account['name']))
             if len(result) > 0:
                 timeStr = next(result.get_points())['time'][:26] + 'Z'
