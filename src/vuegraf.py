@@ -112,7 +112,7 @@ while running:
             #    if tmpStartingTime > start:
             #        start = tmpStartingTime
         else:
-            start = account['end'] - datetime.timedelta(hours=2)
+            start = account['end'] - datetime.timedelta(minutes=10)
             account['end'] = tmpEndingTime
             #result = influx.query('select last(usage), time from energy_usage where account_name = \'{}\''.format(account['name']))
             #if len(result) > 0:
