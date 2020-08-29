@@ -92,7 +92,8 @@ INTERVAL_SECS=60
 LAG_SECS=5
 while running:
     for account in config["accounts"]:
-        tmpEndingTime = datetime.datetime.utcnow() - datetime.timedelta(seconds=LAG_SECS)
+        foonow = datetime.datetime.utcnow()
+        tmpEndingTime = foonow - datetime.timedelta(seconds=LAG_SECS, microseconds=foonow.microsecond)
 
         if 'vue' not in account:
             account['vue'] = PyEmVue()
@@ -110,16 +111,16 @@ while running:
                 timeStr = next(result.get_points())['time'][:26] + 'Z'
                 tmpStartingTime = datetime.datetime.strptime(timeStr, '%Y-%m-%dT%H:%M:%S.%fZ')
                 if tmpStartingTime < start:
-                    start = tmpStartingTime
+                    start = tmpStartingTime - datetime.timedelta(microseconds=tmpStartingTime.microsecond)
         else:
-            start = account['end'] + datetime.timedelta(seconds=1)
+            start = account['end'] - datetime.timedelta(seconds=300)
             account['end'] = tmpEndingTime
             result = influx.query('select last(usage), time from energy_usage where account_name = \'{}\''.format(account['name']))
             if len(result) > 0:
                 timeStr = next(result.get_points())['time'][:26] + 'Z'
                 tmpStartingTime = datetime.datetime.strptime(timeStr, '%Y-%m-%dT%H:%M:%S.%fZ')
                 if tmpStartingTime < start:
-                    start = tmpStartingTime
+                    start = tmpStartingTime - datetime.timedelta(microseconds=tmpStartingTime.microsecond)
         try:
             channels = account['vue'].get_recent_usage(Scale.SECOND.value)
             usageDataPoints = []
