@@ -108,7 +108,7 @@ while running:
             #start = account['end'] - datetime.timedelta(minutes=1)
             result = influx.query('select last(usage), time from energy_usage where account_name = \'{}\''.format(account['name']))
             if len(result) > 0:
-                timeStr = next(result.get_points())['time'][:26] + 'Z'
+                timeStr = next(result.get_points())['time'][:26] # + 'Z'
                 tmpStartingTime = datetime.datetime.strptime(timeStr, '%Y-%m-%dT%H:%M:%S.%fZ')
                 if tmpStartingTime < start:
                     start = tmpStartingTime - datetime.timedelta(microseconds=tmpStartingTime.microsecond)
@@ -117,7 +117,7 @@ while running:
             account['end'] = tmpEndingTime
             result = influx.query('select last(usage), time from energy_usage where account_name = \'{}\''.format(account['name']))
             if len(result) > 0:
-                timeStr = next(result.get_points())['time'][:26] + 'Z'
+                timeStr = next(result.get_points())['time'][:26] # + 'Z'
                 tmpStartingTime = datetime.datetime.strptime(timeStr, '%Y-%m-%dT%H:%M:%S.%fZ')
                 if tmpStartingTime < start:
                     start = tmpStartingTime - datetime.timedelta(microseconds=tmpStartingTime.microsecond)
