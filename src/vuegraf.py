@@ -10,7 +10,7 @@ from pyemvue.enums import Scale, Unit, TotalTimeFrame, TotalUnit
 
 def log(level, msg):
     now = datetime.datetime.utcnow()
-    print('{} | {} | {}'.format(now, level.ljust(5), msg))
+    print('{} | {} | {}'.format(now, level.ljust(5), msg), flush=True)
 
 def info(msg):
     log("INFO", msg)
