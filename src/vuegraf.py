@@ -133,18 +133,20 @@ while running:
             devices = account['vue'].get_devices()
             deviceGids = []
             for device in devices:
-                deviceGids.append(device.device_gid)
+                if not device.device_gid in deviceGids:
+                    deviceGids.append(device.device_gid)
             channels = account['vue'].get_devices_usage(deviceGids, None, scale=Scale.SECOND.value, unit=Unit.KWH.value)
             #channels = account['vue'].get_recent_usage(Scale.SECOND.value)
             usageDataPoints = []
             device = None
             for chan in channels:
                 chanName = lookupChannelName(account, chan)
-
                 usage = account['vue'].get_chart_usage(chan, start, account['end'], scale=Scale.SECOND.value, unit=Unit.KWH.value)
                 #usage = account['vue'].get_usage_over_time(chan, start, account['end'])
                 index = 0
-                for watts in usage:
+                start = usage[1]
+                while index < len(usage[0]):
+                    watts = usage[0][index]
                     if watts is not None:
                         dataPoint = {
                             "measurement": "energy_usage",
