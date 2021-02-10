@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import datetime
 import json
 import signal
@@ -7,16 +9,6 @@ from threading import Event
 from influxdb import InfluxDBClient
 from pyemvue import PyEmVue
 from pyemvue.enums import Scale, Unit, TotalTimeFrame, TotalUnit
-
-def log(level, msg):
-    now = datetime.datetime.utcnow()
-    print('{} | {} | {}'.format(now, level.ljust(5), msg), flush=True)
-
-def info(msg):
-    log("INFO", msg)
-
-def error(msg):
-    log("ERROR", msg)
     
 if len(sys.argv) != 2:
     print('Usage: python {} <config-file>'.format(sys.argv[0]))
@@ -29,11 +21,20 @@ with open(configFilename) as configFile:
 
 influx = InfluxDBClient(config['influxDb']['host'], config['influxDb']['port'], config['influxDb']['user'], config['influxDb']['pass'], config['influxDb']['database'])
 influx.create_database(config['influxDb']['database'])
-if config['influxDb']['reset']:
-    info('Resetting database')
-    influx.delete_series(measurement='energy_usage')
 
 running = True
+# flush=True helps when running in a container without a tty attached
+# (alternatively, "python -u" or PYTHONUNBUFFERED will help here)
+
+def log(level, msg):
+    now = datetime.datetime.utcnow()
+    print('{} | {} | {}'.format(now, level.ljust(5), msg), flush=True)
+
+def info(msg):
+    log("INFO", msg)
+
+def error(msg):
+    log("ERROR", msg)
 
 def handleExit(signum, frame):
     global running
@@ -90,6 +91,13 @@ pauseEvent = Event()
 
 INTERVAL_SECS=60
 LAG_SECS=5
+
+
+if config['influxDb']['reset']:
+    info('Resetting database')
+    influx.delete_series(measurement='energy_usage')
+    
+    
 while running:
     for account in config["accounts"]:
         foonow = datetime.datetime.utcnow()
