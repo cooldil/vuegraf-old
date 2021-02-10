@@ -130,13 +130,19 @@ while running:
                 if tmpStartingTime < start:
                     start = tmpStartingTime - datetime.timedelta(microseconds=tmpStartingTime.microsecond)
         try:
-            channels = account['vue'].get_recent_usage(Scale.SECOND.value)
+            devices = account['vue'].get_devices()
+            deviceGids = []
+            for device in devices:
+                deviceGids.append(device.device_gid)
+            channels = account['vue'].get_devices_usage(deviceGids, None, scale=Scale.SECOND.value, unit=Unit.KWH.value)
+            #channels = account['vue'].get_recent_usage(Scale.SECOND.value)
             usageDataPoints = []
             device = None
             for chan in channels:
                 chanName = lookupChannelName(account, chan)
 
-                usage = account['vue'].get_usage_over_time(chan, start, account['end'])
+                usage = account['vue'].get_chart_usage(chan, start, account['end'], scale=Scale.SECOND.value, unit=Unit.KWH.value)
+                #usage = account['vue'].get_usage_over_time(chan, start, account['end'])
                 index = 0
                 for watts in usage:
                     if watts is not None:
