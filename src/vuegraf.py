@@ -8,7 +8,7 @@ import time
 from threading import Event
 from influxdb import InfluxDBClient
 from pyemvue import PyEmVue
-from pyemvue.enums import Scale, Unit, TotalTimeFrame, TotalUnit
+from pyemvue.enums import Scale, Unit
     
 if len(sys.argv) != 2:
     print('Usage: python {} <config-file>'.format(sys.argv[0]))
@@ -113,7 +113,6 @@ while running:
             account['end'] = tmpEndingTime
 
             start = account['end'] - datetime.timedelta(seconds=INTERVAL_SECS)
-            #start = account['end'] - datetime.timedelta(minutes=1)
             result = influx.query('select last(usage), time from energy_usage where account_name = \'{}\''.format(account['name']))
             if len(result) > 0:
                 timeStr = next(result.get_points())['time'][:26] # + 'Z'
@@ -130,16 +129,21 @@ while running:
                 if tmpStartingTime < start:
                     start = tmpStartingTime - datetime.timedelta(microseconds=tmpStartingTime.microsecond)
         try:
-            channels = account['vue'].get_recent_usage(Scale.SECOND.value)
+            deviceGids = list(account['deviceIdMap'].keys())
+            channels = account['vue'].get_devices_usage(deviceGids, None, scale=Scale.DAY.value, unit=Unit.KWH.value)
             usageDataPoints = []
             device = None
+            secondsInAnHour = 3600
+            wattsInAKw = 1000
             for chan in channels:
                 chanName = lookupChannelName(account, chan)
 
-                usage = account['vue'].get_usage_over_time(chan, start, account['end'])
+                usage, startfoo = account['vue'].get_chart_usage(chan, start, account['end'], scale=Scale.SECOND.value, unit=Unit.KWH.value)
+                startfoo = (startfoo - datetime.timedelta(microseconds=startfoo.microsecond)).replace(tzinfo=None)
                 index = 0
-                for watts in usage:
-                    if watts is not None:
+                for kwhUsage in usage:
+                    if kwhUsage is not None:
+                        watts = float(secondsInAnHour * wattsInAKw) * kwhUsage
                         dataPoint = {
                             "measurement": "energy_usage",
                             "tags": {
@@ -149,10 +153,11 @@ while running:
                             "fields": {
                                 "usage": watts,
                             },
-                            "time": start + datetime.timedelta(seconds=index)
+                            "time": startfoo + datetime.timedelta(seconds=index)
                         }
                         index = index + 1
                         usageDataPoints.append(dataPoint)
+                        #print(dataPoint)
 
             info('Submitted datapoints to database; account="{}"; points={}'.format(account['name'], len(usageDataPoints)))
             influx.write_points(usageDataPoints)
