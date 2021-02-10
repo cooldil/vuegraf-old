@@ -8,7 +8,7 @@ import time
 from threading import Event
 from influxdb import InfluxDBClient
 from pyemvue import PyEmVue
-from pyemvue.enums import Scale, Unit, TotalTimeFrame, TotalUnit
+from pyemvue.enums import Scale, Unit #, TotalTimeFrame, TotalUnit
     
 if len(sys.argv) != 2:
     print('Usage: python {} <config-file>'.format(sys.argv[0]))
