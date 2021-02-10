@@ -155,7 +155,7 @@ while running:
                         usageDataPoints.append(dataPoint)
 
             info('Submitted datapoints to database; account="{}"; points={}'.format(account['name'], len(usageDataPoints)))
-            influx.write_points(usageDataPoints)
+            #influx.write_points(usageDataPoints)
         except:
             error('Failed to record new usage data: {}'.format(sys.exc_info())) 
 
