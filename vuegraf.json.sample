@@ -1,5 +1,8 @@
 {
+    "updateIntervalSecs": 60,
+    "lagSecs": 5,
     "influxDb": {
+        "version": 1
         "host": "my.influxdb.hostname",
         "port": 8086,
         "user": "root",
