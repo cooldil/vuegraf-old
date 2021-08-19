@@ -199,7 +199,7 @@ try:
 
                     for gid, device in usages.items():
                         for chanNum, chan in device.channels.items():
-                            if chanNum != 'Balance':
+                            if ((chanNum != 'Balance') and (chanNum != 'TotalUsage')):
                                 kwhUsage = chan.usage
                                 chanName = lookupChannelName(account, chan)
                                 if kwhUsage is not None:
