@@ -40,6 +40,145 @@ def getConfigValue(key, defaultValue):
         return config[key]
     return defaultValue
 
+def populateDevices(account):
+    deviceIdMap = {}
+    account['deviceIdMap'] = deviceIdMap
+    channelIdMap = {}
+    account['channelIdMap'] = channelIdMap
+    devices = account['vue'].get_devices()
+    for device in devices:
+        device = account['vue'].populate_device_properties(device)
+        deviceIdMap[device.device_gid] = device
+        for chan in device.channels:
+            key = "{}-{}".format(device.device_gid, chan.channel_num)
+            if chan.name is None and chan.channel_num == '1,2,3':
+                chan.name = device.device_name
+            channelIdMap[key] = chan
+            info("Discovered new channel: {} ({})".format(chan.name, chan.channel_num))
+
+def lookupDeviceName(account, device_gid):
+    if device_gid not in account['deviceIdMap']:
+        populateDevices(account)
+
+    deviceName = "{}".format(device_gid)
+    if device_gid in account['deviceIdMap']:
+        deviceName = account['deviceIdMap'][device_gid].device_name
+    return deviceName
+
+def lookupChannelName(account, chan):
+    if chan.device_gid not in account['deviceIdMap']:
+        populateDevices(account)
+
+    deviceName = lookupDeviceName(account, chan.device_gid)
+    name = "{}-{}".format(deviceName, chan.channel_num)
+    if 'devices' in account:
+        for device in account['devices']:
+            if 'name' in device and device['name'] == deviceName:
+                try:
+                    num = int(chan.channel_num)
+                    if 'channels' in device and len(device['channels']) >= num:
+                        name = device['channels'][num - 1]
+                except:
+                    name = deviceName
+    return name
+
+def createDataPoint(account, chanName, watts, timestamp, granularity):
+    dataPoint = None
+    if influxVersion == 2:
+        dataPoint = influxdb_client.Point("energy_usage") \
+            .tag("account_name", account['name']) \
+            .tag("device_name", chanName) \
+            .tag("granularity", granularity) \
+            .field("usage", watts) \
+            .time(time=timestamp)
+    else:
+        dataPoint = {
+            "measurement": "energy_usage",
+            "tags": {
+                "account_name": account['name'],
+                "device_name": chanName,
+                "granularity": granularity,
+            },
+            "fields": {
+                "usage": watts,
+            },
+            "time": timestamp
+        }
+    return dataPoint
+
+def extractDataPoints(device, usageDataPoints):
+    excludedChannelNumbers = ['Balance', 'TotalUsage']
+    minutesInAnHour = 60
+    secondsInAMinute = 60
+    wattsInAKw = 1000
+
+    for chanNum, chan in device.channels.items():
+        if not chanNum in excludedChannelNumbers:
+
+            if chan.nested_devices:
+                for gid, nestedDevice in chan.nested_devices.items():
+                    extractDataPoints(nestedDevice, usageDataPoints)
+
+            kwhUsage = chan.usage
+            chanName = lookupChannelName(account, chan)
+            if kwhUsage is not None:
+                watts = float(minutesInAnHour * wattsInAKw) * kwhUsage
+                timestamp = stopTime
+                usageDataPoints.append(createDataPoint(account, chanName, watts, timestamp, "minute"))
+    
+            if detailedEnabled:
+                account['end'] = stopTime
+                start = account['end'] - datetime.timedelta(seconds=intervalSecs)
+                tmpStartingTime = start
+                timeStr = ''
+                if influxVersion == 2:
+                    timeCol = '_time'
+                    result = query_api.query('from(bucket:"' + bucket + '") ' +
+                         '|> range(start: -3w) ' +
+                         '|> filter(fn: (r) => ' +
+                         '  r._measurement == "energy_usage" and ' +
+                         '  r.granularity == "second" and ' +
+                         '  r._field == "usage" and ' +
+                         '  r.device_name == "' + chanName + '")' +
+                         '|> last()')
+
+                    if len(result) > 0 and len(result[0].records) > 0:
+                        lastRecord = result[0].records[0]
+                        timeStr = lastRecord['_time'].isoformat()
+                else:
+                    result = influx.query('select last(usage), time from energy_usage where (device_name = \'{}\' AND granularity = \'second\')'.format(chanName))
+                    if len(result) > 0:
+                        timeStr = next(result.get_points())['time']
+
+                if len(timeStr) > 0:
+                    timeStr = timeStr[:26]
+                    if not timeStr.endswith('Z'):
+                        timeStr = timeStr + 'Z'
+
+                    tmpStartingTime = datetime.datetime.strptime(timeStr, '%Y-%m-%dT%H:%M:%SZ') #.%fZ')
+                    if tmpStartingTime < start:
+                        start = tmpStartingTime - datetime.timedelta(microseconds=tmpStartingTime.microsecond)
+
+                    if int((stopTime - start).total_seconds()) > 10800:
+                        start = stopTime - datetime.timedelta(seconds=10800)
+                    if int((account['end'] - start).total_seconds()) > 3600:
+                        account['end'] = start + datetime.timedelta(seconds=3600)
+
+                try:
+                    usage, startfoo = account['vue'].get_chart_usage(chan, start, account['end'], scale=Scale.SECOND.value, unit=Unit.KWH.value)
+                    startfoo = (startfoo - datetime.timedelta(microseconds=startfoo.microsecond)).replace(tzinfo=None)
+                    index = 0
+                    if usage is not None:
+                        for kwhUsage in usage:
+                            if kwhUsage is not None:
+                                timestamp = startfoo + datetime.timedelta(seconds=index)
+                                watts = float(secondsInAMinute * minutesInAnHour * wattsInAKw) * kwhUsage
+                                usageDataPoints.append(createDataPoint(account, chanName, watts, timestamp, "second"))
+                                index += 1
+                except:
+                    error('Failed to fetch metrics: {}'.format(sys.exc_info()))
+                    error('Failed on: deviceGid={}; chanNum={}; chanName={};'.format(chan.device_gid, chan.channel_num, chanName))
+
 startupTime = datetime.datetime.utcnow()
 
 try:
@@ -95,71 +234,7 @@ try:
 
     running = True
 
-    def populateDevices(account):
-        deviceIdMap = {}
-        account['deviceIdMap'] = deviceIdMap
-        channelIdMap = {}
-        account['channelIdMap'] = channelIdMap
-        devices = account['vue'].get_devices()
-        for device in devices:
-            device = account['vue'].populate_device_properties(device)
-            deviceIdMap[device.device_gid] = device
-            for chan in device.channels:
-                key = "{}-{}".format(device.device_gid, chan.channel_num)
-                if chan.name is None and chan.channel_num == '1,2,3':
-                    chan.name = device.device_name
-                channelIdMap[key] = chan
-                info("Discovered new channel: {} ({})".format(chan.name, chan.channel_num))
 
-    def lookupDeviceName(account, device_gid):
-        if device_gid not in account['deviceIdMap']:
-            populateDevices(account)
-
-        deviceName = "{}".format(device_gid)
-        if device_gid in account['deviceIdMap']:
-            deviceName = account['deviceIdMap'][device_gid].device_name
-        return deviceName
-
-    def lookupChannelName(account, chan):
-        if chan.device_gid not in account['deviceIdMap']:
-            populateDevices(account)
-
-        deviceName = lookupDeviceName(account, chan.device_gid)
-        name = "{}-{}".format(deviceName, chan.channel_num)
-        if 'devices' in account:
-            for device in account['devices']:
-                if 'name' in device and device['name'] == deviceName:
-                    try:
-                        num = int(chan.channel_num)
-                        if 'channels' in device and len(device['channels']) >= num:
-                            name = device['channels'][num - 1]
-                    except:
-                        name = deviceName
-        return name
-
-    def createDataPoint(account, chanName, watts, timestamp, granularity):
-        dataPoint = None
-        if influxVersion == 2:
-            dataPoint = influxdb_client.Point("energy_usage") \
-                .tag("account_name", account['name']) \
-                .tag("device_name", chanName) \
-                .tag("granularity", granularity) \
-                .field("usage", watts) \
-                .time(time=timestamp)
-        else:
-            dataPoint = {
-                "measurement": "energy_usage",
-                "tags": {
-                    "account_name": account['name'],
-                    "device_name": chanName,
-                    "granularity": granularity,
-                },
-                "fields": {
-                    "usage": watts,
-                },
-                "time": timestamp
-            }
-        return dataPoint
 
     signal.signal(signal.SIGINT, handleExit)
     signal.signal(signal.SIGHUP, handleExit)
@@ -185,7 +260,6 @@ try:
                 account['vue'] = PyEmVue()
                 account['vue'].login(username=account['email'], password=account['password'])
                 info('Login completed')
-
                 populateDevices(account)
 
             try:
@@ -193,72 +267,8 @@ try:
                 usages = account['vue'].get_device_list_usage(deviceGids, stopTime, scale=Scale.MINUTE.value, unit=Unit.KWH.value)
                 if usages is not None:
                     usageDataPoints = []
-                    minutesInAnHour = 60
-                    secondsInAMinute = 60
-                    wattsInAKw = 1000
-
                     for gid, device in usages.items():
-                        for chanNum, chan in device.channels.items():
-                            if ((chanNum != 'Balance') and (chanNum != 'TotalUsage')):
-                                kwhUsage = chan.usage
-                                chanName = lookupChannelName(account, chan)
-                                if kwhUsage is not None:
-                                    watts = float(minutesInAnHour * wattsInAKw) * kwhUsage
-                                    timestamp = stopTime
-                                    usageDataPoints.append(createDataPoint(account, chanName, watts, timestamp, "minute"))
-                        
-                                if detailedEnabled:
-                                    account['end'] = stopTime
-                                    start = account['end'] - datetime.timedelta(seconds=intervalSecs)
-                                    tmpStartingTime = start
-                                    timeStr = ''
-                                    if influxVersion == 2:
-                                        timeCol = '_time'
-                                        result = query_api.query('from(bucket:"' + bucket + '") ' +
-                                                                 '|> range(start: -3w) ' +
-                                                                 '|> filter(fn: (r) => ' +
-                                                                 '  r._measurement == "energy_usage" and ' +
-                                                                 '  r.granularity == "second" and ' +
-                                                                 '  r._field == "usage" and ' +
-                                                                 '  r.device_name == "' + chanName + '")' +
-                                                                 '|> last()')
-
-                                        if len(result) > 0 and len(result[0].records) > 0:
-                                            lastRecord = result[0].records[0]
-                                            timeStr = lastRecord['_time'].isoformat()
-                                    else:
-                                        result = influx.query('select last(usage), time from energy_usage where (device_name = \'{}\' AND granularity = \'second\')'.format(chanName))
-                                        if len(result) > 0:
-                                            timeStr = next(result.get_points())['time']
-
-                                    if len(timeStr) > 0:
-                                        timeStr = timeStr[:26]
-                                        if not timeStr.endswith('Z'):
-                                            timeStr = timeStr + 'Z'
-
-                                        tmpStartingTime = datetime.datetime.strptime(timeStr, '%Y-%m-%dT%H:%M:%SZ') #.%fZ')
-                                        if tmpStartingTime < start:
-                                            start = tmpStartingTime - datetime.timedelta(microseconds=tmpStartingTime.microsecond)
-
-                                        if int((stopTime - start).total_seconds()) > 10800:
-                                            start = stopTime - datetime.timedelta(seconds=10800)
-                                        if int((account['end'] - start).total_seconds()) > 3600:
-                                            account['end'] = start + datetime.timedelta(seconds=3600)
-
-                                    try:
-                                        usage, startfoo = account['vue'].get_chart_usage(chan, start, account['end'], scale=Scale.SECOND.value, unit=Unit.KWH.value)
-                                        startfoo = (startfoo - datetime.timedelta(microseconds=startfoo.microsecond)).replace(tzinfo=None)
-                                        index = 0
-                                        if usage is not None:
-                                            for kwhUsage in usage:
-                                                if kwhUsage is not None:
-                                                    timestamp = startfoo + datetime.timedelta(seconds=index)
-                                                    watts = float(secondsInAMinute * minutesInAnHour * wattsInAKw) * kwhUsage
-                                                    usageDataPoints.append(createDataPoint(account, chanName, watts, timestamp, "second"))
-                                                    index += 1
-                                    except:
-                                        error('Failed to fetch metrics: {}'.format(sys.exc_info()))
-                                        error('Failed on: deviceGid={}; chanNum={}; chanName={};'.format(chan.device_gid, chan.channel_num, chanName))
+                        extractDataPoints(device, usageDataPoints)
 
                     info('Submitting datapoints to database; account="{}"; points={}; detailed={}'.format(account['name'], len(usageDataPoints), detailedEnabled))
                     if influxVersion == 2:
